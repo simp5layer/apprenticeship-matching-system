@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import unittest  # Python's built-in testing framework
 from utils.validation import is_valid_email, is_valid_mobile, is_valid_gpa, is_positive_number
 from utils.encryption import hash_password, check_password
