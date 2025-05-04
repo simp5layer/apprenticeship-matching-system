@@ -1,44 +1,36 @@
-# main.py
-
 import sys
 from PyQt6.QtWidgets import QApplication
-from gui.login_window import LoginWindow
-from gui.student_dashboard import StudentDashboard
-from gui.company_dashboard import CompanyDashboard
-from gui.admin_dashboard import AdminDashboard
+
+# Import the entry window (role selection)
+from gui.entry_window import EntryWindow
+
+# Import database setup to ensure tables exist
+from database import setup
+
+# Import utility modules (if needed globally)
+from utils import encryption, validation, notifications
+
+# Import matching system (for business logic use within GUIs)
+from models.matching import MatchingSystem
+
+# Optional: Import logger (if you have a custom logger)
+# from utils.logger import setup_logger
+
 
 def main():
+    # Step 1: Initialize database (creates tables if not existing)
+    setup.create_tables()
+
+    # Step 2: Initialize the QApplication
     app = QApplication(sys.argv)
 
-    # If you pass an extra arg, use test‐mode:
-    #   python main.py student
-    #   python main.py company
-    #   python main.py admin
-    if len(sys.argv) > 1:
-        mode = sys.argv[1].lower()
-        if mode == "student":
-            dummy = {
-                "name": "Test Student",
-                "student_id": "S000",
-                "specialization": "Electronics",
-                "gpa": 4.0,
-                "preferred_locations": ["CityA", "CityB", "CityC"]
-            }
-            window = StudentDashboard(dummy)
-        elif mode == "company":
-            dummy = {"name": "TestCo", "company_id": 123}
-            window = CompanyDashboard(dummy)
-        elif mode == "admin":
-            window = AdminDashboard()
-        else:
-            print(f"Unknown mode '{mode}', falling back to login.")
-            window = LoginWindow()
-    else:
-        # Default: normal login flow
-        window = LoginWindow()
+    # Step 3: Launch the Entry Window for role selection
+    entry_window = EntryWindow()
+    entry_window.show()
 
-    window.show()
+    # Step 4: Execute the app loop
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

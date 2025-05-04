@@ -1,157 +1,97 @@
 # models/matching.py
 
+from typing import List
 from database.db_manager import DBManager
-from models.student import Student
-from models.company import ApprenticeshipOpening
+from .student import Student
+from .opening import Opening
+
+def match_openings_for_student(student: Student, openings: List[Opening]) -> List[Opening]:
+    """
+    1) Filter openings by matching specialization.
+    2) Prioritize by student’s preferred_locations order.
+    3) Sort within each group by stipend descending.
+    4) Flatten and return the combined list.
+    """
+def match_openings_for_student(student, openings):
+    # 1) only those whose required_gpa ≤ student.gpa
+    spec_matches = [
+      o for o in openings
+      if o.specialization == student.specialization
+         and student.gpa >= o.required_gpa
+    ]
+
+    # 2) split by per-opening priority
+    gpa_pref = [o for o in spec_matches if o.priority == 'gpa']
+    loc_pref = [o for o in spec_matches if o.priority == 'location']
+
+    # 3) GPA-priority group sorted by stipend desc
+    gpa_sorted = sorted(gpa_pref, key=lambda o: -o.stipend)
+
+    # 4) location-priority grouping exactly as before
+    buckets = {loc: [] for loc in student.preferred_locations}
+    others = []
+    for o in loc_pref:
+        if o.location in buckets:
+            buckets[o.location].append(o)
+        else:
+            others.append(o)
+    ordered_loc = []
+    for loc in student.preferred_locations:
+        ordered_loc.extend(sorted(buckets[loc], key=lambda o: -o.stipend))
+    ordered_loc.extend(sorted(others, key=lambda o: -o.stipend))
+
+    # 5) final list: GPA-priority first, then location-priority
+    return gpa_sorted + ordered_loc
+
 
 class MatchingSystem:
     """
-    Core matching engine.  
-    Responsibilities:
-      - add/update/delete students & openings
-      - fetch all students & openings from the DB
-      - match students to openings based on:
-         1) same specialization
-         2) student's location preferences (ranked 0..2)
-         3) GPA (higher first)
+    Encapsulates retrieval of students and openings from the database
+    and applies the matching algorithm.
     """
-    def __init__(self):
-        self.db = DBManager()
 
-    # --- Student CRUD ---
-    def add_student(self, student: Student) -> None:
-        self.db.insert_student(
-            name=student.name,
-            mobile_number=student.mobile_number,
-            email=student.email,
-            student_id=student.student_id,
-            gpa=student.gpa,
-            specialization=student.specialization,
-            preferred_locations=','.join(student.preferred_locations),
-            skills=','.join(student.skills)
-        )
+    def __init__(self, db_path: str = "ams.db"):
+        self.db = DBManager(db_path)
 
-    def delete_student(self, student_id: str) -> None:
-        self.db.delete_student(student_id)
-
-    def modify_student(self, student: Student) -> None:
-        self.db.update_student(
-            student_id=student.student_id,
-            name=student.name,
-            mobile_number=student.mobile_number,
-            email=student.email,
-            gpa=student.gpa,
-            specialization=student.specialization,
-            preferred_locations=','.join(student.preferred_locations),
-            skills=','.join(student.skills)
-        )
-
-    # --- Opening CRUD ---
-    def add_opening(self, opening: ApprenticeshipOpening) -> None:
-        self.db.insert_opening(
-            opening_id=opening.opening_id,
-            specialization=opening.specialization,
-            location=opening.location,
-            stipend=opening.stipend,
-            required_skills=','.join(opening.required_skills)
-        )
-
-    def delete_opening(self, opening_id: int) -> None:
-        self.db.delete_opening(opening_id)
-
-    def modify_opening(self, opening: ApprenticeshipOpening) -> None:
-        self.db.update_opening(
-            opening_id=opening.opening_id,
-            specialization=opening.specialization,
-            location=opening.location,
-            stipend=opening.stipend,
-            required_skills=','.join(opening.required_skills)
-        )
-
-    # --- Fetch helpers ---
-    def get_all_students(self) -> list[Student]:
-        rows = self.db.get_all_students()
-        students = []
-        for r in rows:
-            students.append(Student(
-                name=r['name'],
-                mobile_number=r['mobile_number'],
-                email=r['email'],
-                student_id=r['student_id'],
-                gpa=r['gpa'],
-                specialization=r['specialization'],
-                preferred_locations=(r['preferred_locations'].split(',') if r['preferred_locations'] else []),
-                skills=(r['skills'].split(',') if r['skills'] else [])
-            ))
-        return students
-
-    def get_all_openings(self) -> list[ApprenticeshipOpening]:
-        rows = self.db.get_all_openings()
-        openings = []
-        for r in rows:
-            openings.append(ApprenticeshipOpening(
-                opening_id=r['opening_id'],
-                specialization=r['specialization'],
-                location=r['location'],
-                stipend=r['stipend'],
-                required_skills=(r['required_skills'].split(',') if r['required_skills'] else [])
-            ))
-        return openings
-
-    # --- Matching logic ---
-    def match_students_to_openings(self) -> dict[str, list[dict]]:
+    def get_matches_for_student_email(self, email: str) -> List[Opening]:
         """
-        Returns a mapping from student_id → list of match dicts:
-          {
-            'student_name': str,
-            'gpa': float,
-            'opening_id': int,
-            'opening': str,
-            'location': str,
-            'stipend': float,
-            'preference_rank': int
-          }
+        Given a student's email, load their profile and return a list of
+        Opening objects ordered by matching priority.
         """
-        all_matches = {}
-        students = self.get_all_students()
-        openings = self.get_all_openings()
+        # Load student row
+        stu_row = self.db.get_student_by_email(email)
+        if not stu_row:
+            return []
 
-        for student in students:
-            matches = self._match_for_student(student, openings)
-            all_matches[student.student_id] = matches
+        # Build Student domain object
+        prefs = stu_row['preferred_locations'].split(';') if stu_row['preferred_locations'] else []
+        skills = stu_row['skills'].split(',') if stu_row['skills'] else []
+        student = Student(
+            student_id=stu_row['student_id'],
+            name=stu_row['name'],
+            email=stu_row['email'],
+            gpa=stu_row['gpa'],
+            specialization=stu_row['specialization'],
+            preferred_locations=prefs,
+            skills=skills
+        )
 
-        return all_matches
+        # Fetch openings and build Opening objects
+        raw = self.db.get_openings_by_specialization(student.specialization)
+        openings: List[Opening] = []
+        for o in raw:
+            req_skills = o['required_skills'].split(',') if o['required_skills'] else []
+            openings.append(Opening(
+                opening_id=o['opening_id'],
+                company_email=o['company_email'],
+                name=o['opening_name'],
+                specialization=o['specialization'],
+                location=o['location'],
+                stipend=o['stipend'],
+                required_skills=req_skills
+            ))
 
-    def _match_for_student(
-        self,
-        student: Student,
-        openings: list[ApprenticeshipOpening]
-    ) -> list[dict]:
-        # 1) Filter by specialization
-        candidates = [
-            op for op in openings
-            if op.specialization == student.specialization
-        ]
+        # Delegate to the pure function
+        return match_openings_for_student(student, openings)
 
-        # 2) Score by location preference
-        scored = []
-        for op in candidates:
-            if op.location in student.preferred_locations:
-                rank = student.preferred_locations.index(op.location)
-            else:
-                # skip if not in top-3
-                continue
 
-            scored.append({
-                'student_name': student.name,
-                'gpa': student.gpa,
-                'opening_id': op.opening_id,
-                'opening': op.specialization,
-                'location': op.location,
-                'stipend': op.stipend,
-                'preference_rank': rank
-            })
-
-        # 3) Sort: first by preference_rank (lower is better), then by GPA desc
-        scored.sort(key=lambda m: (m['preference_rank'], -m['gpa']))
-        return scored

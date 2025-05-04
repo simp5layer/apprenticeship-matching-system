@@ -1,4 +1,4 @@
 PyQt6
+Jinja2
 bcrypt
-pytest
-pytest-qt
+
